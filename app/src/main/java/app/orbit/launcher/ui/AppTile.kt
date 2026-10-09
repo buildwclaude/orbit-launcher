@@ -103,6 +103,8 @@ fun AppTile(
     onDragOut: () -> Unit,
     onDrop: () -> Unit,
     modifier: Modifier = Modifier,
+    /** False for Private space apps: menu only, they can't be placed on home. */
+    canDrag: Boolean = true,
 ) {
     val icon = rememberAppIcon(app)
     var bounds by remember { mutableStateOf(Rect.Zero) }
@@ -130,10 +132,11 @@ fun AppTile(
                     onDragStart = { offset ->
                         moved = Offset.Zero
                         menuOpen = true
-                        drag.start(app, bounds.topLeft + offset, fromDrawer)
+                        if (canDrag) drag.start(app, bounds.topLeft + offset, fromDrawer)
                     },
                     onDrag = { change, amount ->
                         change.consume()
+                        if (!canDrag) return@detectDragGesturesAfterLongPress
                         moved += amount
                         drag.position += amount
                         if (!drag.active && moved.getDistance() > viewConfiguration.touchSlop * 2) {
@@ -142,8 +145,8 @@ fun AppTile(
                             currentDragOut()
                         }
                     },
-                    onDragEnd = { if (drag.active) currentDrop() },
-                    onDragCancel = { if (drag.active) drag.reset() },
+                    onDragEnd = { if (canDrag && drag.active) currentDrop() },
+                    onDragCancel = { if (canDrag && drag.active) drag.reset() },
                 )
             }
             .graphicsLayer { alpha = if (hidden) 0f else 1f },

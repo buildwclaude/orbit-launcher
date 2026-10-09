@@ -44,11 +44,13 @@ jobs:
           PERMS=$("$AAPT" dump permissions app/build/outputs/apk/release/app-release.apk)
           echo "$PERMS"
           # Allowed: androidx's app-private receiver permission, opening the
-          # notification shade, and asking Android to uninstall an app.
+          # notification shade, asking Android to uninstall an app, and
+          # showing Private space (Android 15).
           EXTRA=$(echo "$PERMS" | grep "uses-permission" \
             | grep -v "app.orbit.launcher.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" \
             | grep -v "android.permission.EXPAND_STATUS_BAR" \
-            | grep -v "android.permission.REQUEST_DELETE_PACKAGES" || true)
+            | grep -v "android.permission.REQUEST_DELETE_PACKAGES" \
+            | grep -v "android.permission.ACCESS_HIDDEN_PROFILES" || true)
           if [ -n "$EXTRA" ]; then
             echo "::error::APK requests permissions it shouldn't: $EXTRA"
             exit 1

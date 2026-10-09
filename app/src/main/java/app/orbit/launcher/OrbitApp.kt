@@ -32,9 +32,9 @@ class OrbitApp : Application() {
         icons = IconProvider(this, prefs, apps, scope)
         layout = LayoutStore(prefs.sp)
 
-        apps.onPackageChanged = { pkg, removed ->
+        apps.onPackageChanged = { pkg, userSerial, removed ->
             icons.dropPackage(pkg)
-            if (removed) layout.removePackage(pkg)
+            if (removed) layout.removePackage(pkg, userSerial)
         }
         scope.launch {
             val list = apps.apps.filterNotNull().first()

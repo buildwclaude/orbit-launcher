@@ -49,9 +49,10 @@ class LayoutStore(private val sp: SharedPreferences) {
         set(l.copy(items = l.items.filterNot { it.key == key }, dock = l.dock - key))
     }
 
-    fun removePackage(pkg: String) {
+    /** An app was uninstalled for one user (main, work or private). */
+    fun removePackage(pkg: String, userSerial: Long) {
         val l = _layout.value
-        val gone = { k: String -> k.startsWith("$pkg/") }
+        val gone = { k: String -> k.startsWith("$pkg/") && k.endsWith("#$userSerial") }
         if (l.dock.none(gone) && l.items.none { gone(it.key) }) return
         set(l.copy(items = l.items.filterNot { gone(it.key) }, dock = l.dock.filterNot(gone)))
     }

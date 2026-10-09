@@ -1,6 +1,9 @@
 package app.orbit.launcher.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +29,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -46,6 +51,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.orbit.launcher.data.AppInfo
+import app.orbit.launcher.data.PrivateSpace
 import app.orbit.launcher.data.Settings
 
 /**
@@ -64,6 +70,10 @@ fun AppDrawer(
     onDragOut: () -> Unit,
     onDrop: () -> Unit,
     onSettings: () -> Unit,
+    privateSpace: PrivateSpace?,
+    privateApps: List<AppInfo>,
+    onPrivateLocked: (Boolean) -> Unit,
+    onPrivateSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val focus = LocalFocusManager.current
@@ -94,14 +104,31 @@ fun AppDrawer(
 
         if (query.isBlank()) {
             val perPage = cols * rows
-            val pageCount = maxOf(1, (apps.size + perPage - 1) / perPage)
-            val pager = rememberPagerState { pageCount }
+            val appPages = maxOf(1, (apps.size + perPage - 1) / perPage)
+            // Private space is a page to the left of the first apps page (swipe left to right).
+            val first = if (privateSpace != null) 1 else 0
+            val pageCount = appPages + first
+            val pager = rememberPagerState(initialPage = first) { pageCount }
             HorizontalPager(
                 state = pager,
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp),
                 beyondViewportPageCount = 1,
             ) { page ->
-                val from = minOf(page * perPage, apps.size)
+                if (privateSpace != null && page == 0) {
+                    PrivateSpacePage(
+                        space = privateSpace,
+                        apps = privateApps,
+                        cols = cols,
+                        iconSize = iconSize,
+                        drag = drag,
+                        menuFor = menuFor,
+                        onOpen = onOpen,
+                        onLocked = onPrivateLocked,
+                        onSettings = onPrivateSettings,
+                    )
+                    return@HorizontalPager
+                }
+                val from = minOf((page - first) * perPage, apps.size)
                 val slice = apps.subList(from, minOf(from + perPage, apps.size))
                 Column(Modifier.fillMaxSize()) {
                     for (r in 0 until rows) {
@@ -158,6 +185,89 @@ fun AppDrawer(
                 )
             }
         }
+    }
+}
+
+/** Android 15 Private space: locked shows an Unlock button, unlocked shows its apps. */
+@Composable
+private fun PrivateSpacePage(
+    space: PrivateSpace,
+    apps: List<AppInfo>,
+    cols: Int,
+    iconSize: androidx.compose.ui.unit.Dp,
+    drag: DragState,
+    menuFor: (AppInfo) -> List<MenuAction>,
+    onOpen: (AppInfo, android.graphics.Rect?) -> Unit,
+    onLocked: (Boolean) -> Unit,
+    onSettings: () -> Unit,
+) {
+    val white = Color.White
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 8.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(white.copy(alpha = 0.10f))
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Lock, contentDescription = null, tint = white)
+            Spacer(Modifier.width(10.dp))
+            Text("Private space", color = white, fontSize = 18.sp, modifier = Modifier.weight(1f))
+            if (!space.locked) {
+                IconButton(onClick = onSettings) {
+                    Icon(Icons.Default.Settings, contentDescription = "Private space settings", tint = white)
+                }
+                PillButton("Lock") { onLocked(true) }
+            }
+        }
+        if (space.locked) {
+            Column(
+                Modifier.weight(1f).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, tint = white, modifier = Modifier.size(56.dp))
+                Spacer(Modifier.height(16.dp))
+                Text("Private space is locked", style = LabelStyle.copy(fontSize = 16.sp))
+                Spacer(Modifier.height(20.dp))
+                PillButton("Unlock") { onLocked(false) }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(cols),
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp),
+            ) {
+                items(apps, key = { it.key }) { app ->
+                    AppTile(
+                        app = app,
+                        iconSize = iconSize,
+                        showLabel = true,
+                        drag = drag,
+                        fromDrawer = true,
+                        menu = { menuFor(app) },
+                        onOpen = onOpen,
+                        onDragOut = {},
+                        onDrop = {},
+                        modifier = Modifier.height(104.dp),
+                        canDrag = false,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PillButton(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.22f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+    ) {
+        Text(label, color = Color.White, fontSize = 15.sp)
     }
 }
 

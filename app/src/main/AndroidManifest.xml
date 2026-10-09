@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <!-- "Uninstall" in the long-press menu (Android still asks you to confirm). -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Android 15 Private space: only granted while Orbit is the default home app. -->
+    <uses-permission android:name="android.permission.ACCESS_HIDDEN_PROFILES" />
 
     <queries>
         <!-- Apps with an icon: everything the drawer shows. -->

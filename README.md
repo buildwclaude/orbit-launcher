@@ -14,6 +14,7 @@ To go back to the Nothing launcher: Settings → Apps → Default apps → Home 
 |---|---|
 | Swipe up on home | The apps screen opens and follows your finger. |
 | Swipe sideways on the apps screen | Next page of apps (A–Z). |
+| Swipe left to right on the first apps page | Private space (Android 15): Unlock asks for your PIN or fingerprint; Lock hides it again. |
 | Swipe down on the apps screen, or Back | Closes it. |
 | Swipe down on home | Notification shade. |
 | Tap the search bar | Search apps; Enter opens the first match. |
@@ -28,6 +29,6 @@ To go back to the Nothing launcher: Settings → Apps → Default apps → Home 
 - **Home screen:** grid size, app names, swipe down for notifications.
 
 ## Permissions
-Only these: open the notification shade, and ask Android to uninstall an app (Android still asks you to confirm). No internet, no storage. CI fails the build if anything else appears.
+Only these: open the notification shade, ask Android to uninstall an app (Android still asks you to confirm), and see Private space (Android grants this only to the default home app). No internet, no storage. CI fails the build if anything else appears.
 
 Every push to `main` builds the APK in GitHub Actions, commits it to `apk/`, and updates the `latest` release. All builds share one signing key, so updates install over the old version and keep your layout.

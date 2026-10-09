@@ -94,7 +94,10 @@ fun Launcher(
     val apps by orbit.apps.apps.collectAsState()
     val settings by orbit.prefs.settings.collectAsState()
     val layout by orbit.layout.layout.collectAsState()
+    val privateSpace by orbit.apps.privateSpace.collectAsState()
     val appMap = remember(apps) { apps.orEmpty().associateBy { it.key } }
+    // Private space apps only appear on their own page, never in the main list or on home.
+    val (privateApps, mainApps) = remember(apps) { apps.orEmpty().partition { it.isPrivate } }
 
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
@@ -160,7 +163,7 @@ fun Launcher(
     }
     val drawerMenuFor = { app: AppInfo ->
         listOfNotNull(
-            if (layout.contains(app.key)) null else MenuAction("Add to Home") {
+            if (app.isPrivate || layout.contains(app.key)) null else MenuAction("Add to Home") {
                 orbit.layout.add(app.key, settings.homeCols, settings.homeRows)
             },
             MenuAction("App info") { orbit.apps.openAppInfo(app) },
@@ -289,7 +292,7 @@ fun Launcher(
         // Stays composed while an icon dragged out of it is still in the air.
         if (drawerVisible || (drag.active && drag.fromDrawer)) {
             AppDrawer(
-                apps = apps.orEmpty(),
+                apps = mainApps,
                 settings = settings,
                 query = query,
                 onQuery = { query = it },
@@ -299,6 +302,14 @@ fun Launcher(
                 onDragOut = { closeDrawer() },
                 onDrop = ::drop,
                 onSettings = onOpenSettings,
+                privateSpace = privateSpace,
+                privateApps = privateApps,
+                onPrivateLocked = { orbit.apps.setPrivateSpaceLocked(it) },
+                onPrivateSettings = {
+                    orbit.apps.privateSpaceSettings()?.let { sender ->
+                        runCatching { ctx.startIntentSender(sender, null, 0, 0, 0) }
+                    }
+                },
                 modifier = Modifier.graphicsLayer {
                     val p = drawer.value
                     alpha = p
