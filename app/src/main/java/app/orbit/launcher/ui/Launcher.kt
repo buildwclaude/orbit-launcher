@@ -305,11 +305,7 @@ fun Launcher(
                 privateSpace = privateSpace,
                 privateApps = privateApps,
                 onPrivateLocked = { orbit.apps.setPrivateSpaceLocked(it) },
-                onPrivateSettings = {
-                    orbit.apps.privateSpaceSettings()?.let { sender ->
-                        runCatching { ctx.startIntentSender(sender, null, 0, 0, 0) }
-                    }
-                },
+                onPrivateSettings = { orbit.apps.openPrivateSpaceSettings() },
                 modifier = Modifier.graphicsLayer {
                     val p = drawer.value
                     alpha = p

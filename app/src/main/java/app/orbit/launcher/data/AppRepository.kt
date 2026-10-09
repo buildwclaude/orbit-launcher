@@ -196,7 +196,12 @@ class AppRepository(private val context: Context, private val scope: CoroutineSc
         refresh()
     }
 
-    /** Android's Private space settings screen. */
-    fun privateSpaceSettings() =
-        if (Build.VERSION.SDK_INT >= 35) runCatching { launcherApps.privateSpaceSettingsIntent }.getOrNull() else null
+    /** Private space lives under Settings → Security & privacy. */
+    fun openPrivateSpaceSettings() {
+        runCatching {
+            context.startActivity(
+                Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
 }

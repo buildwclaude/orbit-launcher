@@ -3,8 +3,6 @@ package app.orbit.launcher.data
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
@@ -12,7 +10,9 @@ import android.os.Build
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
@@ -40,6 +40,13 @@ class IconProvider(
 ) {
     private val sizePx = (64 * context.resources.displayMetrics.density).toInt()
     private val cache = ConcurrentHashMap<String, ImageBitmap>()
+
+    /**
+     * All icon drawing runs here, two at a time. Unlimited parallel rendering
+     * (100+ apps) starved the UI and the garbage collector when switching styles.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(2)
 
     private val _version = MutableStateFlow(0)
 
@@ -86,13 +93,16 @@ class IconProvider(
     fun icon(app: AppInfo): ImageBitmap {
         val key = "${_version.value}|${app.key}"
         cache[key]?.let { return it }
-        return render(app).also { cache[key] = it }
+        // A single odd icon must never take the home screen down: fall back to the plain icon.
+        val bitmap = runCatching { render(app, style) }.recoverCatching { render(app, IconStyle.SYSTEM) }.getOrNull()
+            ?: return placeholder()
+        return bitmap.also { cache[key] = it }
     }
 
     // Render everything up front so the apps screen never shows empty icons.
     private fun warm(list: List<AppInfo>) {
         warmJob?.cancel()
-        warmJob = scope.launch(Dispatchers.Default) {
+        warmJob = scope.launch(dispatcher) {
             for (app in list) {
                 ensureActive()
                 runCatching { icon(app) }
@@ -100,14 +110,16 @@ class IconProvider(
         }
     }
 
-    private fun render(app: AppInfo): ImageBitmap {
+    private fun placeholder(): ImageBitmap =
+        context.packageManager.defaultActivityIcon.toBitmap(sizePx, sizePx).asImageBitmap()
+
+    private fun render(app: AppInfo, s: String): ImageBitmap {
         val base: Drawable = runCatching { app.info.getIcon(0) }.getOrNull()
             ?: context.packageManager.defaultActivityIcon
-        val s = style
         val styled: Drawable = when {
             s.startsWith(IconStyle.PACK_PREFIX) -> pack?.iconFor(app.component) ?: base
-            s == IconStyle.THEMED_GOOGLE -> themed(base, googleColors()) ?: base
-            s == IconStyle.THEMED_NOTHING -> themed(base, nothingColors()) ?: greyscale(base)
+            s == IconStyle.THEMED_GOOGLE -> themed(base, googleColors(), app.label)
+            s == IconStyle.THEMED_NOTHING -> themed(base, nothingColors(), app.label)
             else -> base
         }
         val badged = if (app.isMainUser) styled else context.packageManager.getUserBadgedIcon(styled, app.user)
@@ -120,15 +132,11 @@ class IconProvider(
      * A monochrome glyph on a coloured background, like Pixel themed icons. Uses
      * the app's own themed icon when it has one, otherwise generates one.
      */
-    private fun themed(base: Drawable, colors: Pair<Int, Int>): Drawable? {
+    private fun themed(base: Drawable, colors: Pair<Int, Int>, label: String): Drawable {
         val own = if (Build.VERSION.SDK_INT >= 33) (base as? AdaptiveIconDrawable)?.monochrome else null
-        val mono = own?.mutate() ?: AutoMono.make(context.resources, base) ?: return null
+        val mono = own?.mutate() ?: AutoMono.make(context.resources, base, label)
         mono.setTint(colors.second)
         return AdaptiveIconDrawable(ColorDrawable(colors.first), mono)
-    }
-
-    private fun greyscale(base: Drawable): Drawable = base.mutate().apply {
-        colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
     }
 
     private fun isDark() =

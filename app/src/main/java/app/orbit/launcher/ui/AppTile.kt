@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.orbit.launcher.data.AppInfo
 import app.orbit.launcher.orbit
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 data class MenuAction(val label: String, val run: () -> Unit)
@@ -78,7 +77,7 @@ fun rememberAppIcon(app: AppInfo): ImageBitmap? {
     val icons = LocalContext.current.orbit.icons
     val version by icons.version.collectAsState()
     return produceState(icons.cached(app), app.key, version) {
-        value = withContext(Dispatchers.Default) { icons.icon(app) }
+        value = withContext(icons.dispatcher) { runCatching { icons.icon(app) }.getOrNull() }
     }.value
 }
 
