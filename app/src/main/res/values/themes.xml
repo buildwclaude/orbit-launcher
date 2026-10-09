@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.Orbit" parent="android:Theme.Material.NoActionBar" />
+
+    <!-- The wallpaper is drawn behind the home screen and the apps screen. -->
+    <style name="Theme.Orbit.Home">
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">false</item>
+    </style>
+</resources>

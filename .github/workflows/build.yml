@@ -1,0 +1,86 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "apk/**"
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Build APK
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: gradle assembleRelease --stacktrace
+
+      - name: Verify the APK has no extra permissions (privacy gate)
+        run: |
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | tail -1)
+          PERMS=$("$AAPT" dump permissions app/build/outputs/apk/release/app-release.apk)
+          echo "$PERMS"
+          # Allowed: androidx's app-private receiver permission, opening the
+          # notification shade, and asking Android to uninstall an app.
+          EXTRA=$(echo "$PERMS" | grep "uses-permission" \
+            | grep -v "app.orbit.launcher.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" \
+            | grep -v "android.permission.EXPAND_STATUS_BAR" \
+            | grep -v "android.permission.REQUEST_DELETE_PACKAGES" || true)
+          if [ -n "$EXTRA" ]; then
+            echo "::error::APK requests permissions it shouldn't: $EXTRA"
+            exit 1
+          fi
+          echo "Confirmed: no internet, storage or other permissions."
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk Orbit.apk
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Orbit-apk
+          path: Orbit.apk
+
+      - name: Commit APK into the repository (apk/ folder)
+        run: |
+          mkdir -p apk
+          cp Orbit.apk apk/Orbit.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apk/Orbit.apk
+          git commit -m "ci: APK build ${{ github.run_number }} [skip ci]" || echo "No changes"
+          git pull --rebase
+          git push
+
+      - name: Update "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest Orbit.apk \
+            --prerelease \
+            --title "Orbit (build ${{ github.run_number }})" \
+            --notes "Built from ${GITHUB_SHA::7}. Download Orbit.apk on your phone and install it over the previous version."
