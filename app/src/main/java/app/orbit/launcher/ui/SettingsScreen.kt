@@ -113,12 +113,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
                     StyleOption(
                         "Google themed icons",
-                        "Pixel-style icons in your wallpaper's colours, for apps that support themed icons",
+                        "Pixel-style icons in your wallpaper's colours, for every app",
                         s.iconStyle == IconStyle.THEMED_GOOGLE,
                     ) { prefs.edit { putString(Prefs.ICON_STYLE, IconStyle.THEMED_GOOGLE) } }
                     StyleOption(
                         "Nothing style",
-                        "Monochrome icons in black and white; apps without a themed icon turn greyscale",
+                        "Monochrome icons in black and white, for every app",
                         s.iconStyle == IconStyle.THEMED_NOTHING,
                     ) { prefs.edit { putString(Prefs.ICON_STYLE, IconStyle.THEMED_NOTHING) } }
                     packs.forEach { pack ->

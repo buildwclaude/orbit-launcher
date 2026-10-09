@@ -28,8 +28,8 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Renders app icons in the chosen style:
  * - the app's own icon,
- * - Google themed icons (the app's monochrome layer in Material You colours),
- * - Nothing style (monochrome layer in black/white, everything else greyscale),
+ * - Google themed icons (monochrome glyphs in Material You colours),
+ * - Nothing style (monochrome layer in black/white),
  * - or an installed icon pack.
  */
 class IconProvider(
@@ -116,11 +116,14 @@ class IconProvider(
         return (bitmap.copy(Bitmap.Config.HARDWARE, false) ?: bitmap).asImageBitmap()
     }
 
-    /** The icon's monochrome layer on a coloured background, like Pixel themed icons. */
+    /**
+     * A monochrome glyph on a coloured background, like Pixel themed icons. Uses
+     * the app's own themed icon when it has one, otherwise generates one.
+     */
     private fun themed(base: Drawable, colors: Pair<Int, Int>): Drawable? {
-        if (Build.VERSION.SDK_INT < 33) return null
-        val mono = (base as? AdaptiveIconDrawable)?.monochrome ?: return null
-        mono.mutate().setTint(colors.second)
+        val own = if (Build.VERSION.SDK_INT >= 33) (base as? AdaptiveIconDrawable)?.monochrome else null
+        val mono = own?.mutate() ?: AutoMono.make(context.resources, base) ?: return null
+        mono.setTint(colors.second)
         return AdaptiveIconDrawable(ColorDrawable(colors.first), mono)
     }
 
