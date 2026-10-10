@@ -54,6 +54,16 @@ class Prefs(context: Context) {
 
     fun edit(block: SharedPreferences.Editor.() -> Unit) = sp.edit().apply(block).apply()
 
+    /**
+     * The icon style is written to disk before anything reacts to it. Redrawing
+     * every icon is the heaviest thing Orbit does; with apply(), anything going
+     * wrong during the redraw lost the new choice and the old one came back.
+     */
+    fun setIconStyle(style: String) {
+        sp.edit().putString(ICON_STYLE, style).commit()
+        _settings.value = read()
+    }
+
     companion object {
         const val ICON_STYLE = "icon_style"
         const val DRAWER_DIM = "drawer_dim"

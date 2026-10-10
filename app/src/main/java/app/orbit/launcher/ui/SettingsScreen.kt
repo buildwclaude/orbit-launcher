@@ -119,22 +119,22 @@ fun SettingsScreen(onBack: () -> Unit) {
             item {
                 Section("Icons") {
                     StyleOption("App icons", "Each app's own icon", s.iconStyle == IconStyle.SYSTEM) {
-                        prefs.edit { putString(Prefs.ICON_STYLE, IconStyle.SYSTEM) }
+                        prefs.setIconStyle(IconStyle.SYSTEM)
                     }
                     StyleOption(
                         "Google themed icons",
                         "Pixel-style icons in your wallpaper's colours, for every app",
                         s.iconStyle == IconStyle.THEMED_GOOGLE,
-                    ) { prefs.edit { putString(Prefs.ICON_STYLE, IconStyle.THEMED_GOOGLE) } }
+                    ) { prefs.setIconStyle(IconStyle.THEMED_GOOGLE) }
                     StyleOption(
                         "Nothing style",
                         "Monochrome icons in black and white, for every app",
                         s.iconStyle == IconStyle.THEMED_NOTHING,
-                    ) { prefs.edit { putString(Prefs.ICON_STYLE, IconStyle.THEMED_NOTHING) } }
+                    ) { prefs.setIconStyle(IconStyle.THEMED_NOTHING) }
                     packs.forEach { pack ->
                         val id = IconStyle.PACK_PREFIX + pack.packageName
                         StyleOption(pack.label, "Icon pack", s.iconStyle == id) {
-                            prefs.edit { putString(Prefs.ICON_STYLE, id) }
+                            prefs.setIconStyle(id)
                         }
                     }
                     if (packs.isEmpty()) {
