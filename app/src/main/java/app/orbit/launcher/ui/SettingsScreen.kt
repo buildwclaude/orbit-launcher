@@ -52,7 +52,6 @@ import app.orbit.launcher.data.IconStyle
 import app.orbit.launcher.data.PrivateSpace
 import app.orbit.launcher.data.Prefs
 import app.orbit.launcher.BuildConfig
-import app.orbit.launcher.LockAdmin
 import app.orbit.launcher.orbit
 import kotlin.math.roundToInt
 
@@ -73,12 +72,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     var isDefault by remember { mutableStateOf(isDefaultHome(ctx)) }
     val privateSpace by ctx.orbit.apps.privateSpace.collectAsState()
     var crash by remember { mutableStateOf(ctx.orbit.crashLog.read()) }
-    var lockOn by remember { mutableStateOf(LockAdmin.isEnabled(ctx)) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         isDefault = isDefaultHome(ctx)
         packs = IconPack.installed(ctx)
-        lockOn = LockAdmin.isEnabled(ctx)
         // Android 15 hides Private space until Orbit is the home app: look again.
         ctx.orbit.apps.refresh()
     }
@@ -217,30 +214,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                     SwitchRow("Swipe down for notifications", null, s.swipeDownNotifications) {
                         prefs.edit { putBoolean(Prefs.SWIPE_DOWN, it) }
                     }
-                    SwitchRow("Double-tap to lock", "Double-tap an empty spot on the home screen", s.doubleTapLock) {
-                        prefs.edit { putBoolean(Prefs.DOUBLE_TAP_LOCK, it) }
-                    }
-                    if (s.doubleTapLock && !lockOn) {
-                        Text(
-                            "One more step: tap Turn on, then Activate. Orbit can only turn the screen off with it. " +
-                                "After a double-tap lock, Android asks for your PIN once instead of your fingerprint.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Button(onClick = { LockAdmin.requestEnable(ctx) }) { Text("Turn on") }
-                    }
-                    if (lockOn) {
-                        Text(
-                            "On. After a double-tap lock, Android asks for your PIN once instead of your fingerprint. " +
-                                "To uninstall Orbit, turn this off first.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        OutlinedButton(onClick = {
-                            LockAdmin.disable(ctx)
-                            lockOn = false
-                        }) { Text("Turn off lock permission") }
-                    }
                     OutlinedButton(onClick = {
                         runCatching {
                             ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Wallpaper"))
@@ -264,7 +237,7 @@ private fun copyReport(ctx: Context, isDefault: Boolean, iconStyle: String, cras
     val report = buildString {
         appendLine("Orbit ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         appendLine("${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
-        appendLine("default home: $isDefault, icon style: $iconStyle, lock service: ${LockAdmin.isEnabled(ctx)}")
+        appendLine("default home: $isDefault, icon style: $iconStyle")
         append(ctx.orbit.apps.profileReport)
         appendLine("private space: ${ctx.orbit.apps.privateSpace.value}")
         appendLine()

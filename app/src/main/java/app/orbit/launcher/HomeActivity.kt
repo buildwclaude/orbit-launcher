@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -32,7 +31,6 @@ class HomeActivity : ComponentActivity() {
                     homePressed = homePressed,
                     onBlur = ::setBlur,
                     onExpandNotifications = ::expandNotifications,
-                    onDoubleTap = ::lockScreen,
                     onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
                 )
             }
@@ -63,13 +61,6 @@ class HomeActivity : ComponentActivity() {
             attrs.flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
         }
         window.attributes = attrs
-    }
-
-    /** Double-tap on empty home space. The first time, it shows where to turn it on. */
-    private fun lockScreen() {
-        if (!orbit.prefs.settings.value.doubleTapLock || LockAdmin.lock(this)) return
-        Toast.makeText(this, "To lock with a double-tap, tap Activate", Toast.LENGTH_LONG).show()
-        LockAdmin.requestEnable(this)
     }
 
     // StatusBarManager.expandNotificationsPanel isn't public API, but it's what

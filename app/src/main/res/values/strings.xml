@@ -1,5 +1,4 @@
 <resources>
     <string name="app_name">Orbit</string>
     <string name="settings_label">Orbit settings</string>
-    <string name="lock_admin_label">Orbit double-tap to lock</string>
 </resources>

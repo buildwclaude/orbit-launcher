@@ -23,7 +23,6 @@ data class Settings(
     val drawerRows: Int,
     val showLabels: Boolean,
     val swipeDownNotifications: Boolean,
-    val doubleTapLock: Boolean,
 )
 
 class Prefs(context: Context) {
@@ -42,7 +41,6 @@ class Prefs(context: Context) {
         drawerRows = sp.getInt(DRAWER_ROWS, 6),
         showLabels = sp.getBoolean(SHOW_LABELS, true),
         swipeDownNotifications = sp.getBoolean(SWIPE_DOWN, true),
-        doubleTapLock = sp.getBoolean(DOUBLE_TAP_LOCK, true),
     )
 
     /**
@@ -75,6 +73,5 @@ class Prefs(context: Context) {
         const val DRAWER_ROWS = "drawer_rows"
         const val SHOW_LABELS = "show_labels"
         const val SWIPE_DOWN = "swipe_down_notifications"
-        const val DOUBLE_TAP_LOCK = "double_tap_lock"
     }
 }
