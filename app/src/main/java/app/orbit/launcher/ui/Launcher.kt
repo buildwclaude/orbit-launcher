@@ -87,6 +87,7 @@ fun Launcher(
     homePressed: Flow<Unit>,
     onBlur: (Int) -> Unit,
     onExpandNotifications: () -> Unit,
+    onDoubleTap: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -278,6 +279,7 @@ fun Launcher(
             onOpen = ::open,
             onDrop = ::drop,
             onLongPressEmpty = { homeMenu = true },
+            onDoubleTapEmpty = onDoubleTap,
             onGridBounds = { gridBounds = it },
             onDockBounds = { dockBounds = it },
             modifier = Modifier.graphicsLayer {
@@ -345,6 +347,7 @@ private fun HomeScreen(
     onOpen: (AppInfo, android.graphics.Rect?) -> Unit,
     onDrop: () -> Unit,
     onLongPressEmpty: () -> Unit,
+    onDoubleTapEmpty: () -> Unit,
     onGridBounds: (Rect) -> Unit,
     onDockBounds: (Rect) -> Unit,
     modifier: Modifier = Modifier,
@@ -363,8 +366,12 @@ private fun HomeScreen(
                 val cellW = maxWidth / settings.homeCols
                 val cellH = maxHeight / settings.homeRows
                 val iconSize = minOf(cellW * 0.66f, cellH * 0.56f, 62.dp)
-                // Empty space: long-press for wallpaper & settings.
-                Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPressEmpty() }) })
+                // Empty space: long-press for wallpaper & settings, double-tap to lock.
+                Box(
+                    Modifier.fillMaxSize().pointerInput(Unit) {
+                        detectTapGestures(onLongPress = { onLongPressEmpty() }, onDoubleTap = { onDoubleTapEmpty() })
+                    },
+                )
                 for (item in layout.items) {
                     if (item.page != page) continue
                     val app = appMap[item.key] ?: continue

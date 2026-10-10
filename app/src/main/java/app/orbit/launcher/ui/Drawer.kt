@@ -1,5 +1,6 @@
 package app.orbit.launcher.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -33,22 +36,36 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toAndroidRect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.orbit.launcher.data.AppInfo
@@ -59,6 +76,8 @@ import kotlinx.coroutines.launch
 /**
  * The apps screen: a search bar on top, then the apps in alphabetical order on
  * horizontal pages (One UI style). The wallpaper shows through behind it.
+ * Tapping the search bar swaps the pages for a scrolling list of every app that
+ * narrows as you type (like the iPhone App Library and Samsung Finder).
  */
 @Composable
 fun AppDrawer(
@@ -82,11 +101,31 @@ fun AppDrawer(
     val cols = settings.drawerCols
     val rows = settings.drawerRows
     val iconSize = if (cols >= 5) 54.dp else 60.dp
+    // Stays on after the keyboard goes away, until Cancel, Back or the apps screen closes.
+    var searchOpen by remember { mutableStateOf(false) }
+    val searching = searchOpen || query.isNotEmpty()
     val results = remember(apps, query) {
         val q = query.trim()
-        if (q.isEmpty()) emptyList() else apps.filter { it.label.contains(q, ignoreCase = true) }
-            .sortedByDescending { it.label.startsWith(q, ignoreCase = true) }
+        if (q.isEmpty()) {
+            apps
+        } else {
+            // Names that start with it first, then a word that starts with it, then anywhere.
+            apps.filter { it.label.contains(q, ignoreCase = true) }.sortedBy { app ->
+                when {
+                    app.label.startsWith(q, ignoreCase = true) -> 0
+                    app.label.split(' ', '-', '.').any { it.startsWith(q, ignoreCase = true) } -> 1
+                    else -> 2
+                }
+            }
+        }
     }
+
+    fun cancelSearch() {
+        focus.clearFocus()
+        onQuery("")
+        searchOpen = false
+    }
+    BackHandler(enabled = searching) { cancelSearch() }
 
     Column(
         modifier
@@ -94,17 +133,19 @@ fun AppDrawer(
             // Makes the whole screen a touch target, so taps never fall through to home.
             .pointerInput(Unit) { detectTapGestures(onTap = { focus.clearFocus() }) }
             .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding(),
+            .navigationBarsPadding(),
     ) {
         SearchBar(
             query = query,
+            searching = searching,
             onQuery = onQuery,
-            onSearch = { results.firstOrNull()?.let { onOpen(it, null) } },
+            onFocused = { searchOpen = true },
+            onSearch = { if (query.isNotBlank()) results.firstOrNull()?.let { onOpen(it, null) } },
+            onCancel = ::cancelSearch,
             onSettings = onSettings,
         )
 
-        if (query.isBlank()) {
+        if (!searching) {
             val perPage = cols * rows
             val appPages = maxOf(1, (apps.size + perPage - 1) / perPage)
             // Private space is a page to the left of the first apps page (swipe left to right).
@@ -181,33 +222,108 @@ fun AppDrawer(
                 PageDots(appPages, pager.currentPage - first, Modifier.padding(vertical = 6.dp))
             }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(cols),
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp),
-            ) {
-                items(results, key = { it.key }) { app ->
-                    AppTile(
-                        app = app,
-                        iconSize = iconSize,
-                        showLabel = true,
-                        drag = drag,
-                        fromDrawer = true,
-                        menu = { menuFor(app) },
-                        onOpen = onOpen,
-                        onDragOut = onDragOut,
-                        onDrop = onDrop,
-                        modifier = Modifier.height(104.dp),
+            SearchResults(
+                apps = results,
+                hasQuery = query.isNotBlank(),
+                menuFor = menuFor,
+                onOpen = onOpen,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
+        }
+    }
+}
+
+/** Search: one app per row, scrolling under the keyboard instead of squeezing to fit above it. */
+@Composable
+private fun SearchResults(
+    apps: List<AppInfo>,
+    hasQuery: Boolean,
+    menuFor: (AppInfo) -> List<MenuAction>,
+    onOpen: (AppInfo, android.graphics.Rect?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val list = rememberLazyListState()
+    // Scrolling the list puts the keyboard away so you can see more apps.
+    LaunchedEffect(list.isScrollInProgress) { if (list.isScrollInProgress) keyboard?.hide() }
+    // A new search starts back at the top.
+    LaunchedEffect(apps) { list.scrollToItem(0) }
+
+    Box(modifier.imePadding().padding(horizontal = 12.dp)) {
+        if (apps.isEmpty()) {
+            Text(
+                "No apps found",
+                style = LabelStyle.copy(fontSize = 15.sp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 48.dp),
+            )
+            return@Box
+        }
+        LazyColumn(
+            state = list,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp, bottom = 8.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.White.copy(alpha = 0.10f)),
+        ) {
+            item(key = "header") {
+                Text(
+                    if (hasQuery) "Apps" else "All apps",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp),
+                )
+            }
+            items(apps.size, key = { apps[it].key }) { i ->
+                val app = apps[i]
+                SearchRow(app, menu = { menuFor(app) }, onOpen = onOpen)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchRow(app: AppInfo, menu: () -> List<MenuAction>, onOpen: (AppInfo, android.graphics.Rect?) -> Unit) {
+    val icon = rememberAppIcon(app)
+    var bounds by remember { mutableStateOf(Rect.Zero) }
+    var menuOpen by remember { mutableStateOf(false) }
+    val currentOpen by rememberUpdatedState(onOpen)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .pointerInput(app.key) {
+                detectTapGestures(
+                    onTap = { currentOpen(app, bounds.toAndroidRect()) },
+                    onLongPress = { menuOpen = true },
+                )
+            }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box {
+            IconImage(icon, 44.dp)
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                menu().forEach { action ->
+                    DropdownMenuItem(
+                        text = { Text(action.label) },
+                        onClick = {
+                            menuOpen = false
+                            action.run()
+                        },
                     )
                 }
             }
-            if (results.isEmpty()) {
-                Text(
-                    "No apps found",
-                    style = LabelStyle.copy(fontSize = 15.sp),
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 48.dp),
-                )
-            }
         }
+        Spacer(Modifier.width(14.dp))
+        Text(
+            app.label,
+            color = Color.White,
+            fontSize = 16.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -297,8 +413,11 @@ private fun PillButton(label: String, onClick: () -> Unit) {
 @Composable
 private fun SearchBar(
     query: String,
+    searching: Boolean,
     onQuery: (String) -> Unit,
+    onFocused: () -> Unit,
     onSearch: () -> Unit,
+    onCancel: () -> Unit,
     onSettings: () -> Unit,
 ) {
     val white = Color.White
@@ -327,7 +446,7 @@ private fun SearchBar(
                     cursorBrush = SolidColor(white),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) onFocused() },
                 )
             }
             if (query.isNotEmpty()) {
@@ -336,8 +455,20 @@ private fun SearchBar(
                 }
             }
         }
-        IconButton(onClick = onSettings) {
-            Icon(Icons.Default.MoreVert, contentDescription = "Settings", tint = white)
+        if (searching) {
+            Text(
+                "Cancel",
+                color = white,
+                fontSize = 16.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable(onClick = onCancel)
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+            )
+        } else {
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Settings", tint = white)
+            }
         }
     }
 }

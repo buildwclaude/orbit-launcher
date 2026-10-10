@@ -23,6 +23,7 @@ data class Settings(
     val drawerRows: Int,
     val showLabels: Boolean,
     val swipeDownNotifications: Boolean,
+    val doubleTapLock: Boolean,
 )
 
 class Prefs(context: Context) {
@@ -30,15 +31,6 @@ class Prefs(context: Context) {
 
     private val _settings = MutableStateFlow(read())
     val settings: StateFlow<Settings> = _settings
-
-    // Held in a field: SharedPreferences only keeps a weak reference.
-    private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key != LayoutStore.KEY) _settings.value = read()
-    }
-
-    init {
-        sp.registerOnSharedPreferenceChangeListener(listener)
-    }
 
     private fun read() = Settings(
         iconStyle = sp.getString(ICON_STYLE, null) ?: IconStyle.SYSTEM,
@@ -50,9 +42,18 @@ class Prefs(context: Context) {
         drawerRows = sp.getInt(DRAWER_ROWS, 6),
         showLabels = sp.getBoolean(SHOW_LABELS, true),
         swipeDownNotifications = sp.getBoolean(SWIPE_DOWN, true),
+        doubleTapLock = sp.getBoolean(DOUBLE_TAP_LOCK, true),
     )
 
-    fun edit(block: SharedPreferences.Editor.() -> Unit) = sp.edit().apply(block).apply()
+    /**
+     * Saves and updates [settings] right away. Waiting for Android's "preference
+     * changed" callback left switches stuck: in release builds the callback
+     * stopped arriving, so nothing on screen ever saw the new value.
+     */
+    fun edit(block: SharedPreferences.Editor.() -> Unit) {
+        sp.edit().apply(block).apply()
+        _settings.value = read()
+    }
 
     /**
      * The icon style is written to disk before anything reacts to it. Redrawing
@@ -74,5 +75,6 @@ class Prefs(context: Context) {
         const val DRAWER_ROWS = "drawer_rows"
         const val SHOW_LABELS = "show_labels"
         const val SWIPE_DOWN = "swipe_down_notifications"
+        const val DOUBLE_TAP_LOCK = "double_tap_lock"
     }
 }
