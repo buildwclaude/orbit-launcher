@@ -30,6 +30,10 @@
         <intent>
             <action android:name="com.anddoes.launcher.THEME" />
         </intent>
+        <!-- Apps with widgets, for the widget list. -->
+        <intent>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent>
         <!-- Default dock apps on first run. -->
         <intent>
             <action android:name="android.intent.action.DIAL" />

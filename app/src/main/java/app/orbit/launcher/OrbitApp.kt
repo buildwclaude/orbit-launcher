@@ -1,11 +1,13 @@
 package app.orbit.launcher
 
 import android.app.Application
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import app.orbit.launcher.data.AppRepository
 import app.orbit.launcher.data.CrashLog
 import app.orbit.launcher.data.IconProvider
 import app.orbit.launcher.data.LayoutStore
+import app.orbit.launcher.data.OrbitWidgetHost
 import app.orbit.launcher.data.Prefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +29,9 @@ class OrbitApp : Application() {
         private set
     lateinit var layout: LayoutStore
         private set
+    lateinit var widgetHost: OrbitWidgetHost
+        private set
+    val widgetManager: AppWidgetManager by lazy { AppWidgetManager.getInstance(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -35,6 +40,12 @@ class OrbitApp : Application() {
         apps = AppRepository(this, scope)
         icons = IconProvider(this, prefs, apps, scope)
         layout = LayoutStore(prefs.sp)
+        widgetHost = OrbitWidgetHost(this)
+        // Widget ids Android still holds for us but that aren't on home any more (e.g. Orbit stopped mid-setup).
+        runCatching {
+            val onHome = layout.layout.value.widgets.map { it.id }.toSet()
+            widgetHost.appWidgetIds.filter { it !in onHome }.forEach(widgetHost::deleteAppWidgetId)
+        }
 
         apps.onPackageChanged = { pkg, userSerial, removed ->
             icons.dropPackage(pkg)

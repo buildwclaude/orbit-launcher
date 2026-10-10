@@ -1,5 +1,6 @@
 package app.orbit.launcher.ui
 
+import android.appwidget.AppWidgetProviderInfo
 import android.content.Intent
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
@@ -8,6 +9,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -32,10 +35,16 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -70,14 +79,17 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.orbit.launcher.data.AppInfo
+import app.orbit.launcher.data.HomeWidget
 import app.orbit.launcher.data.Layout
 import app.orbit.launcher.data.Settings
 import app.orbit.launcher.orbit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 private val DrawerSpring = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
@@ -87,6 +99,8 @@ fun Launcher(
     homePressed: Flow<Unit>,
     onBlur: (Int) -> Unit,
     onExpandNotifications: () -> Unit,
+    onAddWidget: (AppWidgetProviderInfo, Int) -> Unit,
+    showPage: Flow<Int>,
     onOpenSettings: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -108,16 +122,20 @@ fun Launcher(
     val drawer = remember { Animatable(0f) }
     val drag = remember { DragState() }
     var query by remember { mutableStateOf("") }
-    var homeMenu by remember { mutableStateOf(false) }
+    /** One UI edit mode (long-press empty home space): pages zoomed out, add/delete pages, widgets. */
+    var editMode by remember { mutableStateOf(false) }
+    var widgetPicker by remember { mutableStateOf(false) }
+    var resizing by remember { mutableStateOf<Int?>(null) }
+    var confirmDeletePage by remember { mutableStateOf<Int?>(null) }
     var rootWidth by remember { mutableFloatStateOf(0f) }
     var gridBounds by remember { mutableStateOf(Rect.Zero) }
     var dockBounds by remember { mutableStateOf(Rect.Zero) }
 
-    // While dragging, an extra empty page waits on the right for a new page.
-    val homePager = rememberPagerState { layout.pageCount + if (drag.active) 1 else 0 }
+    // While dragging, an extra empty page waits on the right for a new page; in edit mode, the "+" page.
+    val homePager = rememberPagerState { layout.pageCount + if (drag.active || editMode) 1 else 0 }
 
     fun openDrawer() {
-        homeMenu = false
+        editMode = false
         scope.launch { drawer.animateTo(1f, DrawerSpring) }
     }
 
@@ -129,6 +147,10 @@ fun Launcher(
     }
 
     fun open(app: AppInfo, bounds: android.graphics.Rect?) = orbit.apps.launch(app, bounds)
+
+    fun deletePage(page: Int) {
+        orbit.layout.deletePage(page).forEach { orbit.widgetHost.deleteAppWidgetId(it) }
+    }
 
     /** Drop the dragged icon where the finger is: dock slot or home cell. */
     fun drop() {
@@ -177,8 +199,18 @@ fun Launcher(
 
     LaunchedEffect(Unit) {
         homePressed.collect {
-            homeMenu = false
+            widgetPicker = false
+            editMode = false
             if (drawer.value > 0f) closeDrawer() else homePager.animateScrollToPage(0)
+        }
+    }
+
+    // A widget was just added: show the page it's on.
+    LaunchedEffect(Unit) {
+        showPage.collect { page ->
+            editMode = false
+            withTimeoutOrNull(1000) { snapshotFlow { homePager.pageCount }.first { it > page } }
+            homePager.animateScrollToPage(page)
         }
     }
 
@@ -194,6 +226,8 @@ fun Launcher(
     // Hold a dragged icon at the screen edge to flip home pages.
     LaunchedEffect(drag.active) {
         if (!drag.active) return@LaunchedEffect
+        // Picking up an icon leaves edit mode, so it drops onto the full-size grid.
+        editMode = false
         val edge = with(density) { 28.dp.toPx() }
         var dir = 0
         var since = SystemClock.uptimeMillis()
@@ -218,8 +252,11 @@ fun Launcher(
     }
 
     BackHandler {
-        homeMenu = false
-        if (drawer.value > 0f || drawer.targetValue > 0f) closeDrawer()
+        when {
+            widgetPicker -> widgetPicker = false
+            editMode -> editMode = false
+            drawer.value > 0f || drawer.targetValue > 0f -> closeDrawer()
+        }
     }
 
     val swipeDown = settings.swipeDownNotifications
@@ -228,7 +265,9 @@ fun Launcher(
             .fillMaxSize()
             .onSizeChanged { rootWidth = it.width.toFloat() }
             // Swipe up: apps screen (follows the finger). Swipe down on home: notifications.
-            .pointerInput(swipeDown) {
+            .pointerInput(swipeDown, editMode) {
+                // Edit mode: swiping does nothing but flip pages.
+                if (editMode) return@pointerInput
                 val tracker = VelocityTracker()
                 var total = 0f
                 var startedOnHome = true
@@ -237,7 +276,6 @@ fun Launcher(
                         total = 0f
                         tracker.resetTracking()
                         startedOnHome = drawer.value == 0f
-                        homeMenu = false
                     },
                     onDragEnd = {
                         val v = tracker.calculateVelocity().y
@@ -277,7 +315,26 @@ fun Launcher(
             menuFor = homeMenuFor,
             onOpen = ::open,
             onDrop = ::drop,
-            onLongPressEmpty = { homeMenu = true },
+            editMode = editMode,
+            onLongPressEmpty = { editMode = true },
+            onTapEmpty = { editMode = false },
+            onAddPage = {
+                val p = orbit.layout.addPage()
+                scope.launch { homePager.animateScrollToPage(p) }
+            },
+            onDeletePage = { p -> if (layout.isPageEmpty(p)) deletePage(p) else confirmDeletePage = p },
+            onResizeWidget = { resizing = it.id },
+            onWallpaper = {
+                editMode = false
+                runCatching {
+                    ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Wallpaper"))
+                }
+            },
+            onWidgets = { widgetPicker = true },
+            onSettings = {
+                editMode = false
+                onOpenSettings()
+            },
             onGridBounds = { gridBounds = it },
             onDockBounds = { dockBounds = it },
             modifier = Modifier.graphicsLayer {
@@ -316,19 +373,34 @@ fun Launcher(
 
         drag.app?.takeIf { drag.active }?.let { DraggedIcon(it, drag) }
 
-        if (homeMenu) {
-            HomeMenu(
-                onDismiss = { homeMenu = false },
-                onWallpaper = {
-                    homeMenu = false
-                    runCatching {
-                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Wallpaper"))
-                    }
+        if (widgetPicker) {
+            WidgetPicker(
+                cols = settings.homeCols,
+                rows = settings.homeRows,
+                onDismiss = { widgetPicker = false },
+                onPick = { info ->
+                    widgetPicker = false
+                    onAddWidget(info, homePager.currentPage.coerceAtMost(layout.pageCount - 1))
                 },
-                onSettings = {
-                    homeMenu = false
-                    onOpenSettings()
+            )
+        }
+
+        resizing?.let { id ->
+            ResizeWidgetDialog(id, settings.homeCols, settings.homeRows, onDismiss = { resizing = null })
+        }
+
+        confirmDeletePage?.let { page ->
+            AlertDialog(
+                onDismissRequest = { confirmDeletePage = null },
+                title = { Text("Delete this page?") },
+                text = { Text("The apps and widgets on it will be removed from Home. Apps stay on the apps screen.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmDeletePage = null
+                        deletePage(page)
+                    }) { Text("Delete") }
                 },
+                dismissButton = { TextButton(onClick = { confirmDeletePage = null }) { Text("Cancel") } },
             )
         }
     }
@@ -344,11 +416,22 @@ private fun HomeScreen(
     menuFor: (AppInfo) -> List<MenuAction>,
     onOpen: (AppInfo, android.graphics.Rect?) -> Unit,
     onDrop: () -> Unit,
+    editMode: Boolean,
     onLongPressEmpty: () -> Unit,
+    onTapEmpty: () -> Unit,
+    onAddPage: () -> Unit,
+    onDeletePage: (Int) -> Unit,
+    onResizeWidget: (HomeWidget) -> Unit,
+    onWallpaper: () -> Unit,
+    onWidgets: () -> Unit,
+    onSettings: () -> Unit,
     onGridBounds: (Rect) -> Unit,
     onDockBounds: (Rect) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val currentEdit by rememberUpdatedState(editMode)
+    val currentTapEmpty by rememberUpdatedState(onTapEmpty)
+    val pageShape = RoundedCornerShape(24.dp)
     Column(modifier.fillMaxSize().systemBarsPadding()) {
         HorizontalPager(
             state = pager,
@@ -357,38 +440,97 @@ private fun HomeScreen(
                 .fillMaxWidth()
                 .padding(start = 8.dp, end = 8.dp, top = 24.dp)
                 .onGloballyPositioned { onGridBounds(it.boundsInRoot()) },
+            // Edit mode: smaller pages with the next ones peeking in, like One UI.
+            contentPadding = if (editMode) PaddingValues(horizontal = 36.dp) else PaddingValues(0.dp),
+            pageSpacing = if (editMode) 12.dp else 0.dp,
             beyondViewportPageCount = 1,
         ) { page ->
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val cellW = maxWidth / settings.homeCols
-                val cellH = maxHeight / settings.homeRows
-                val iconSize = minOf(cellW * 0.66f, cellH * 0.56f, 62.dp)
-                // Empty space: long-press for wallpaper & settings.
-                Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPressEmpty() }) })
-                for (item in layout.items) {
-                    if (item.page != page) continue
-                    val app = appMap[item.key] ?: continue
-                    key(item.key) {
-                        AppTile(
-                            app = app,
-                            iconSize = iconSize,
-                            showLabel = settings.showLabels,
-                            drag = drag,
-                            fromDrawer = false,
-                            menu = { menuFor(app) },
-                            onOpen = onOpen,
-                            onDragOut = {},
-                            onDrop = onDrop,
-                            modifier = Modifier
-                                .offset(cellW * item.x, cellH * item.y)
-                                .size(cellW, cellH),
-                        )
+            if (editMode && page >= layout.pageCount) {
+                AddPageCard(onAddPage, Modifier.padding(vertical = 16.dp).fillMaxSize())
+                return@HorizontalPager
+            }
+            val frame = if (editMode) {
+                Modifier
+                    .padding(vertical = 16.dp)
+                    .clip(pageShape)
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .border(1.5.dp, Color.White.copy(alpha = 0.7f), pageShape)
+                    .padding(top = 44.dp, start = 4.dp, end = 4.dp, bottom = 4.dp)
+            } else {
+                Modifier
+            }
+            Box(Modifier.fillMaxSize()) {
+                BoxWithConstraints(Modifier.fillMaxSize().then(frame)) {
+                    val cellW = maxWidth / settings.homeCols
+                    val cellH = maxHeight / settings.homeRows
+                    val iconSize = minOf(cellW * 0.66f, cellH * 0.56f, 62.dp)
+                    // Empty space: long-press for edit mode; in edit mode, a tap goes back.
+                    Box(
+                        Modifier.fillMaxSize().pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = { if (currentEdit) currentTapEmpty() },
+                                onLongPress = { onLongPressEmpty() },
+                            )
+                        },
+                    )
+                    for (w in layout.widgets) {
+                        if (w.page != page) continue
+                        key("widget:${w.id}") {
+                            HomeWidgetView(
+                                widget = w,
+                                cellW = cellW,
+                                cellH = cellH,
+                                cols = settings.homeCols,
+                                rows = settings.homeRows,
+                                onResize = onResizeWidget,
+                                modifier = Modifier
+                                    .offset(cellW * w.x, cellH * w.y)
+                                    .size(cellW * w.w, cellH * w.h),
+                            )
+                        }
+                    }
+                    for (item in layout.items) {
+                        if (item.page != page) continue
+                        val app = appMap[item.key] ?: continue
+                        key(item.key) {
+                            AppTile(
+                                app = app,
+                                iconSize = iconSize,
+                                showLabel = settings.showLabels,
+                                drag = drag,
+                                fromDrawer = false,
+                                menu = { menuFor(app) },
+                                onOpen = onOpen,
+                                onDragOut = {},
+                                onDrop = onDrop,
+                                modifier = Modifier
+                                    .offset(cellW * item.x, cellH * item.y)
+                                    .size(cellW, cellH),
+                            )
+                        }
+                    }
+                }
+                if (editMode && layout.pageCount > 1) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 22.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onDeletePage(page) }
+                            .padding(6.dp),
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete page", tint = Color.White)
                     }
                 }
             }
         }
 
         PageDots(pager.pageCount, pager.currentPage, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 10.dp))
+
+        if (editMode) {
+            EditBar(onWallpaper = onWallpaper, onWidgets = onWidgets, onSettings = onSettings)
+            return@Column
+        }
 
         Dock(
             keys = layout.dock,
@@ -461,27 +603,39 @@ private fun DraggedIcon(app: AppInfo, drag: DragState) {
     )
 }
 
-/** Long-press on empty home space: a small bar like One UI's edit mode. */
+/** Edit mode's bottom bar, where the dock usually is (One UI: Wallpapers, Widgets, Settings). */
 @Composable
-private fun HomeMenu(onDismiss: () -> Unit, onWallpaper: () -> Unit, onSettings: () -> Unit) {
-    Box(
+private fun EditBar(onWallpaper: () -> Unit, onWidgets: () -> Unit, onSettings: () -> Unit) {
+    Row(
         Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.25f))
-            .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+            .fillMaxWidth()
+            .padding(start = 8.dp, end = 8.dp, bottom = 12.dp)
+            .height(84.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 40.dp)
-                .clip(RoundedCornerShape(28.dp))
-                .background(Color.Black.copy(alpha = 0.6f))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            HomeMenuButton(Icons.Default.Edit, "Wallpaper", onWallpaper)
-            HomeMenuButton(Icons.Default.Settings, "Settings", onSettings)
+        HomeMenuButton(Icons.Default.Edit, "Wallpaper", onWallpaper)
+        HomeMenuButton(Icons.Default.AddCircle, "Widgets", onWidgets)
+        HomeMenuButton(Icons.Default.Settings, "Settings", onSettings)
+    }
+}
+
+/** The page after the last one in edit mode: tap to add an empty page. */
+@Composable
+private fun AddPageCard(onAdd: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(24.dp)
+    Box(
+        modifier
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.05f))
+            .border(1.5.dp, Color.White.copy(alpha = 0.4f), shape)
+            .clickable(onClick = onAdd),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
+            Spacer(Modifier.height(8.dp))
+            Text("Add page", color = Color.White, fontSize = 15.sp)
         }
     }
 }
