@@ -61,6 +61,10 @@ class AppRepository(private val context: Context, private val scope: CoroutineSc
     private val _privateSpace = MutableStateFlow<PrivateSpace?>(null)
     val privateSpace: StateFlow<PrivateSpace?> = _privateSpace
 
+    /** What Android showed us of each profile, for the report in Settings. */
+    @Volatile var profileReport: String = ""
+        private set
+
     /** Called on the main thread when a package is installed, updated or removed for one user. */
     var onPackageChanged: ((pkg: String, userSerial: Long, removed: Boolean) -> Unit)? = null
 
@@ -112,19 +116,26 @@ class AppRepository(private val context: Context, private val scope: CoroutineSc
         }
     }
 
-    private fun isPrivateProfile(user: UserHandle): Boolean =
-        Build.VERSION.SDK_INT >= 35 &&
-            runCatching { launcherApps.getLauncherUserInfo(user)?.userType == UserManager.USER_TYPE_PROFILE_PRIVATE }
-                .getOrDefault(false)
+    /** The profile's type, e.g. "android.os.usertype.profile.PRIVATE", or why Android wouldn't say. */
+    private fun userType(user: UserHandle): String = when {
+        user == Process.myUserHandle() -> "main"
+        Build.VERSION.SDK_INT < 35 -> "unknown (Android ${Build.VERSION.SDK_INT})"
+        else -> runCatching { launcherApps.getLauncherUserInfo(user)?.userType ?: "null" }
+            .getOrElse { "error: ${it.javaClass.simpleName}: ${it.message}" }
+    }
 
     private fun load(): Pair<List<AppInfo>, PrivateSpace?> {
         val collator = Collator.getInstance()
         val result = ArrayList<AppInfo>()
         var space: PrivateSpace? = null
+        val report = StringBuilder()
         for (user in launcherApps.profiles) {
-            val isPrivate = isPrivateProfile(user)
+            val type = userType(user)
+            val isPrivate = Build.VERSION.SDK_INT >= 35 && type == UserManager.USER_TYPE_PROFILE_PRIVATE
+            val quiet = runCatching { userManager.isQuietModeEnabled(user) }.getOrNull()
+            report.append("profile ${userManager.getSerialNumberForUser(user)}: $type, quiet=$quiet\n")
             if (isPrivate) {
-                val locked = runCatching { userManager.isQuietModeEnabled(user) }.getOrDefault(true)
+                val locked = quiet ?: true
                 space = PrivateSpace(user, locked)
                 // Locked: its apps stay hidden, like on Pixel and Nothing.
                 if (locked) continue
@@ -149,6 +160,7 @@ class AppRepository(private val context: Context, private val scope: CoroutineSc
             }
         }
         result.sortWith { a, b -> collator.compare(a.label, b.label) }
+        profileReport = report.toString()
         return result to space
     }
 

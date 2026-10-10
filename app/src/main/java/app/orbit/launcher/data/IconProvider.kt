@@ -15,7 +15,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -23,6 +22,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -42,11 +42,12 @@ class IconProvider(
     private val cache = ConcurrentHashMap<String, ImageBitmap>()
 
     /**
-     * All icon drawing runs here, two at a time. Unlimited parallel rendering
-     * (100+ apps) starved the UI and the garbage collector when switching styles.
+     * All icon drawing runs here, one at a time. Copies of an app's icon share
+     * their vector drawing state, so drawing the same icon on two threads at
+     * once can crash Orbit outright (seen when switching to themed icons).
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(2)
+    val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
 
     private val _version = MutableStateFlow(0)
 
@@ -104,8 +105,9 @@ class IconProvider(
         warmJob?.cancel()
         warmJob = scope.launch(dispatcher) {
             for (app in list) {
-                ensureActive()
                 runCatching { icon(app) }
+                // Let icons that are on screen right now go first.
+                yield()
             }
         }
     }
@@ -114,8 +116,9 @@ class IconProvider(
         context.packageManager.defaultActivityIcon.toBitmap(sizePx, sizePx).asImageBitmap()
 
     private fun render(app: AppInfo, s: String): ImageBitmap {
-        val base: Drawable = runCatching { app.info.getIcon(0) }.getOrNull()
-            ?: context.packageManager.defaultActivityIcon
+        // mutate(): our own copy, so drawing it never touches state the system's icon cache shares.
+        val base: Drawable = (runCatching { app.info.getIcon(0) }.getOrNull()
+            ?: context.packageManager.defaultActivityIcon).mutate()
         val styled: Drawable = when {
             s.startsWith(IconStyle.PACK_PREFIX) -> pack?.iconFor(app.component) ?: base
             s == IconStyle.THEMED_GOOGLE -> themed(base, googleColors(), app.label)

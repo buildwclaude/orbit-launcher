@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import app.orbit.launcher.data.AppInfo
 import app.orbit.launcher.data.PrivateSpace
 import app.orbit.launcher.data.Settings
+import kotlinx.coroutines.launch
 
 /**
  * The apps screen: a search bar on top, then the apps in alphabetical order on
@@ -108,7 +110,9 @@ fun AppDrawer(
             // Private space is a page to the left of the first apps page (swipe left to right).
             val first = if (privateSpace != null) 1 else 0
             val pageCount = appPages + first
-            val pager = rememberPagerState(initialPage = first) { pageCount }
+            // Keyed on [first]: if Private space shows up while the screen is open, stay on the apps.
+            val pager = key(first) { rememberPagerState(initialPage = first) { pageCount } }
+            val scope = rememberCoroutineScope()
             HorizontalPager(
                 state = pager,
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp),
@@ -156,7 +160,26 @@ fun AppDrawer(
                     }
                 }
             }
-            PageDots(pageCount, pager.currentPage, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 14.dp))
+            Row(
+                Modifier.align(Alignment.CenterHorizontally).padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (first == 1) {
+                    // One UI style: a lock before the dots marks the Private space page.
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = "Private space",
+                        tint = Color.White.copy(alpha = if (pager.currentPage == 0) 1f else 0.6f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { scope.launch { pager.animateScrollToPage(0) } }
+                            .padding(6.dp)
+                            .size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+                PageDots(appPages, pager.currentPage - first, Modifier.padding(vertical = 6.dp))
+            }
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(cols),

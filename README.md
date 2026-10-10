@@ -14,7 +14,7 @@ To go back to the Nothing launcher: Settings → Apps → Default apps → Home 
 |---|---|
 | Swipe up on home | The apps screen opens and follows your finger. |
 | Swipe sideways on the apps screen | Next page of apps (A–Z). |
-| Swipe left to right on the first apps page | Private space (Android 15): Unlock asks for your PIN or fingerprint; Lock hides it again. |
+| Swipe left to right on the first apps page, or tap the 🔒 before the page dots | Private space (Android 15): Unlock asks for your PIN or fingerprint; Lock hides it again. Only shows once Orbit is the default home app and a Private space is set up (Settings → Private space tells you which is missing). |
 | Swipe down on the apps screen, or Back | Closes it. |
 | Swipe down on home | Notification shade. |
 | Tap the search bar | Search apps; Enter opens the first match. |
@@ -27,6 +27,7 @@ To go back to the Nothing launcher: Settings → Apps → Default apps → Home 
 - **Icons:** app icons · Google themed (Material You) · Nothing style (black and white) · any installed icon pack (Nova/ADW format).
 - **Apps screen:** background dim from 0% (fully transparent) to 80%, optional wallpaper blur, and a grid of 4×5, 4×6, 5×5 or 5×6.
 - **Home screen:** grid size, app names, swipe down for notifications.
+- **Problems:** shows the last crash or freeze. **Copy report** puts the details on the clipboard to paste into the chat.
 
 ## Permissions
 Only these: open the notification shade, ask Android to uninstall an app (Android still asks you to confirm), and see Private space (Android grants this only to the default home app). No internet, no storage. CI fails the build if anything else appears.

@@ -2,8 +2,12 @@
 
 package app.orbit.launcher.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.widget.Toast
 import android.content.pm.PackageManager
 import android.provider.Settings as AndroidSettings
 import androidx.compose.foundation.clickable
@@ -45,7 +49,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.orbit.launcher.data.IconPack
 import app.orbit.launcher.data.IconStyle
+import app.orbit.launcher.data.PrivateSpace
 import app.orbit.launcher.data.Prefs
+import app.orbit.launcher.BuildConfig
 import app.orbit.launcher.orbit
 import kotlin.math.roundToInt
 
@@ -64,10 +70,14 @@ fun SettingsScreen(onBack: () -> Unit) {
     val s by prefs.settings.collectAsState()
     var packs by remember { mutableStateOf(IconPack.installed(ctx)) }
     var isDefault by remember { mutableStateOf(isDefaultHome(ctx)) }
+    val privateSpace by ctx.orbit.apps.privateSpace.collectAsState()
+    var crash by remember { mutableStateOf(ctx.orbit.crashLog.read()) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         isDefault = isDefaultHome(ctx)
         packs = IconPack.installed(ctx)
+        // Android 15 hides Private space until Orbit is the home app: look again.
+        ctx.orbit.apps.refresh()
     }
 
     Scaffold(
@@ -138,6 +148,39 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
 
             item {
+                Section("Private space") {
+                    Text(privateSpaceText(privateSpace, isDefault), style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(onClick = { ctx.orbit.apps.openPrivateSpaceSettings() }) {
+                        Text(if (privateSpace == null) "Set up Private space" else "Private space settings")
+                    }
+                }
+            }
+
+            item {
+                Section("Problems") {
+                    val first = crash?.lineSequence()?.firstOrNull()
+                    Text(
+                        if (first == null) "Orbit hasn't crashed or frozen since this version was installed." else "Orbit stopped: $first",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "If something isn't working, copy the report and paste it in the chat. It stays on your phone until you paste it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { copyReport(ctx, isDefault, s.iconStyle, crash) }) { Text("Copy report") }
+                        if (crash != null) {
+                            OutlinedButton(onClick = {
+                                ctx.orbit.crashLog.clear()
+                                crash = null
+                            }) { Text("Clear") }
+                        }
+                    }
+                }
+            }
+
+            item {
                 Section("Apps screen") {
                     Text("Background dim: ${(s.drawerDim * 100).roundToInt()}%", style = MaterialTheme.typography.bodyMedium)
                     Text(
@@ -180,6 +223,29 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
         }
     }
+}
+
+private fun privateSpaceText(space: PrivateSpace?, isDefault: Boolean): String = when {
+    Build.VERSION.SDK_INT < 35 -> "Private space needs Android 15."
+    space != null -> "Found, ${if (space.locked) "locked" else "unlocked"}. To open it, swipe up for the apps screen, " +
+        "then on the first page swipe your finger from left to right. You can also tap the lock next to the page dots."
+    !isDefault -> "Make Orbit your home app first. Android only shows Private space to the home app."
+    else -> "No Private space on this phone yet. Set one up, then come back here."
+}
+
+private fun copyReport(ctx: Context, isDefault: Boolean, iconStyle: String, crash: String?) {
+    val report = buildString {
+        appendLine("Orbit ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        appendLine("${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
+        appendLine("default home: $isDefault, icon style: $iconStyle")
+        append(ctx.orbit.apps.profileReport)
+        appendLine("private space: ${ctx.orbit.apps.privateSpace.value}")
+        appendLine()
+        append(crash ?: "No crash recorded.")
+    }
+    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Orbit report", report))
+    // Android 13+ shows its own "Copied" message.
+    if (Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "Report copied", Toast.LENGTH_SHORT).show()
 }
 
 @Composable
