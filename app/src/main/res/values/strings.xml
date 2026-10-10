@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">Orbit</string>
     <string name="settings_label">Orbit settings</string>
-    <string name="lock_service_label">Orbit double-tap to lock</string>
-    <string name="lock_service_description">Lets you double-tap an empty part of the Orbit home screen to turn the screen off. It only asks Android to lock the phone: it doesn\'t read what\'s on your screen or anything you type.</string>
+    <string name="lock_admin_label">Orbit double-tap to lock</string>
 </resources>

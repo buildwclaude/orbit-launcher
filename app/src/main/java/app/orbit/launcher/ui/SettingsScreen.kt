@@ -52,7 +52,7 @@ import app.orbit.launcher.data.IconStyle
 import app.orbit.launcher.data.PrivateSpace
 import app.orbit.launcher.data.Prefs
 import app.orbit.launcher.BuildConfig
-import app.orbit.launcher.LockService
+import app.orbit.launcher.LockAdmin
 import app.orbit.launcher.orbit
 import kotlin.math.roundToInt
 
@@ -73,12 +73,12 @@ fun SettingsScreen(onBack: () -> Unit) {
     var isDefault by remember { mutableStateOf(isDefaultHome(ctx)) }
     val privateSpace by ctx.orbit.apps.privateSpace.collectAsState()
     var crash by remember { mutableStateOf(ctx.orbit.crashLog.read()) }
-    var lockOn by remember { mutableStateOf(LockService.isEnabled(ctx)) }
+    var lockOn by remember { mutableStateOf(LockAdmin.isEnabled(ctx)) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         isDefault = isDefaultHome(ctx)
         packs = IconPack.installed(ctx)
-        lockOn = LockService.isEnabled(ctx)
+        lockOn = LockAdmin.isEnabled(ctx)
         // Android 15 hides Private space until Orbit is the home app: look again.
         ctx.orbit.apps.refresh()
     }
@@ -222,23 +222,24 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
                     if (s.doubleTapLock && !lockOn) {
                         Text(
-                            "One more step: in Accessibility, turn on \"Orbit double-tap to lock\". It only locks the phone " +
-                                "and doesn't read your screen. If Android says it's a restricted setting, open App info for " +
-                                "Orbit, tap ⋮ at the top, choose Allow restricted settings, then try again.",
+                            "One more step: tap Turn on, then Activate. Orbit can only turn the screen off with it. " +
+                                "After a double-tap lock, Android asks for your PIN once instead of your fingerprint.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { LockService.openSettings(ctx) }) { Text("Turn on") }
-                            OutlinedButton(onClick = {
-                                runCatching {
-                                    ctx.startActivity(
-                                        Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                                            .setData(android.net.Uri.fromParts("package", ctx.packageName, null)),
-                                    )
-                                }
-                            }) { Text("App info") }
-                        }
+                        Button(onClick = { LockAdmin.requestEnable(ctx) }) { Text("Turn on") }
+                    }
+                    if (lockOn) {
+                        Text(
+                            "On. After a double-tap lock, Android asks for your PIN once instead of your fingerprint. " +
+                                "To uninstall Orbit, turn this off first.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedButton(onClick = {
+                            LockAdmin.disable(ctx)
+                            lockOn = false
+                        }) { Text("Turn off lock permission") }
                     }
                     OutlinedButton(onClick = {
                         runCatching {
@@ -263,7 +264,7 @@ private fun copyReport(ctx: Context, isDefault: Boolean, iconStyle: String, cras
     val report = buildString {
         appendLine("Orbit ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         appendLine("${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
-        appendLine("default home: $isDefault, icon style: $iconStyle, lock service: ${LockService.isEnabled(ctx)}")
+        appendLine("default home: $isDefault, icon style: $iconStyle, lock service: ${LockAdmin.isEnabled(ctx)}")
         append(ctx.orbit.apps.profileReport)
         appendLine("private space: ${ctx.orbit.apps.privateSpace.value}")
         appendLine()
