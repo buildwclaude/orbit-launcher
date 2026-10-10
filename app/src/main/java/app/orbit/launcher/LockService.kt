@@ -46,7 +46,8 @@ class LockService : AccessibilityService() {
         /** Orbit's own page in Accessibility settings, or the list if this phone can't open it directly. */
         fun openSettings(ctx: Context) {
             val me = ComponentName(ctx, LockService::class.java).flattenToString()
-            val details = Intent(Settings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS)
+            // Settings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS, which the SDK doesn't make public.
+            val details = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
                 .putExtra(Intent.EXTRA_COMPONENT_NAME, me)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             runCatching { ctx.startActivity(details) }.onFailure {
